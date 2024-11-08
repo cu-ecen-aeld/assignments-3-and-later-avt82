@@ -1,4 +1,8 @@
 #include "systemcalls.h"
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/wait.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -9,15 +13,11 @@
 */
 bool do_system(const char *cmd)
 {
+    const int ret = system(cmd);
 
-/*
- * TODO  add your code here
- *  Call the system() function with the command set in the cmd
- *   and return a boolean true if the system() call completed with success
- *   or false() if it returned a failure
-*/
+    if(cmd == NULL) return (ret > 0);
 
-    return true;
+    return (ret >= 0);
 }
 
 /**
@@ -45,23 +45,25 @@ bool do_exec(int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
 
-/*
- * TODO:
- *   Execute a system command by calling fork, execv(),
- *   and wait instead of system (see LSP page 161).
- *   Use the command[0] as the full path to the command to execute
- *   (first argument to execv), and use the remaining arguments
- *   as second argument to the execv() command.
- *
-*/
+    fflush(stdout);
+    fflush(stderr);
+
+    const pid_t child = fork();
+
+    if(child < 0) return false;
+
+    if(child == 0) // child process
+    {
+	execv(command[0], command);
+	abort();
+    }
 
     va_end(args);
 
-    return true;
+    int status = 0;	// just to avoid warning
+    waitpid(child, &status, 0);
+    return WIFEXITED(status) && (status == 0);
 }
 
 /**
@@ -80,20 +82,40 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
 
+    int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    if (fd < 0) { return false; }
 
-/*
- * TODO
- *   Call execv, but first using https://stackoverflow.com/a/13784315/1446624 as a refernce,
- *   redirect standard out to a file specified by outputfile.
- *   The rest of the behaviour is same as do_exec()
- *
-*/
+    fflush(stdout);
+    fflush(stderr);
+
+    const pid_t child = fork();
+
+    if(child < 0) return false;
+
+    if(child == 0)
+    {
+        if (dup2(fd, STDOUT_FILENO) < 0) { return false; }
+        close(fd);
+        execvp(command[0], command);
+	abort();
+    }
+
+    int status = 0;	// just to avoid warning
+    waitpid(child, &status, 0);
+
+    close(fd);
 
     va_end(args);
 
-    return true;
+    return WIFEXITED(status) && (status == 0);
 }
+
+
+/*
+int main()
+{
+    printf("returns %d\n", do_exec(1, "/bin/echo"));
+    return 0;
+}
+*/
