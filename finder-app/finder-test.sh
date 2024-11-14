@@ -5,10 +5,16 @@
 set -e
 set -u
 
+export PATH=$PATH:/usr/bin
+
+CONF_DIR=/etc/finder-app/conf/
+OUTPUT_LOG=/tmp/assignment-4-result.txt
+
 NUMFILES=10
 WRITESTR=AELD_IS_FUN
 WRITEDIR=/tmp/aeld-data
-username=$(cat conf/username.txt)
+username=$(cat ${CONF_DIR}username.txt)
+assignment=$(cat ${CONF_DIR}assignment.txt)
 
 if [ $# -lt 3 ]
 then
@@ -18,7 +24,7 @@ then
 		echo "Using default value ${NUMFILES} for number of files to write"
 	else
 		NUMFILES=$1
-	fi	
+	fi
 else
 	NUMFILES=$1
 	WRITESTR=$2
@@ -32,8 +38,6 @@ echo "Writing ${NUMFILES} files containing string ${WRITESTR} to ${WRITEDIR}"
 rm -rf "${WRITEDIR}"
 
 # create $WRITEDIR if not assignment1
-assignment=`cat ../conf/assignment.txt`
-
 if [ $assignment != 'assignment1' ]
 then
 	mkdir -p "$WRITEDIR"
@@ -49,8 +53,7 @@ then
 	fi
 fi
 
-for i in $( seq 1 $NUMFILES)
-do
+for i in $( seq 1 $NUMFILES) ; do
 	./writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
 
@@ -60,7 +63,7 @@ OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
 rm -rf /tmp/aeld-data
 
 set +e
-echo ${OUTPUTSTRING} | grep "${MATCHSTR}"
+echo "${OUTPUTSTRING}" | grep "${MATCHSTR}"
 if [ $? -eq 0 ]; then
 	echo "success"
 	exit 0
@@ -68,3 +71,5 @@ else
 	echo "failed: expected  ${MATCHSTR} in ${OUTPUTSTRING} but instead found"
 	exit 1
 fi
+
+echo "${OUTPUTSTRING}" > ${OUTPUT_LOG}
