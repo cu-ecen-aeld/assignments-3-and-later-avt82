@@ -1,17 +1,16 @@
-APP=writer
 CC=$(CROSS_COMPILE)gcc
-CC_FLAGS=-Wall
-CC_INCLUDE=
+CFLAGS ?= -Wall
+INCLUDES ?= 
+OBJS ?= writer.c
+TARGET ?= writer
+LDFLAGS ?= 
 
 .phony:		all
 all:		$(APP)
-		@echo "Build completed ($(CC))"
+		$(CC) $(CFLAGS) $(INCLUDES) $(OBJS) -o $(TARGET) $(LDFLAGS)
+		@echo "Done"
 
 .phony:		clean
 clean:
-		-@rm *.o *.so $(APP) 1>/dev/null 2>/dev/null
-		@echo "Done."
-
-$(APP):		$(APP).c
-		@$(CC) $(CC_FLAGS) $(^) -o $(@)
-		@echo "Compiled $(^)"
+		-@rm *.o $(TARGET) 1>/dev/null 2>/dev/null
+		@echo "Clean."
