@@ -1,0 +1,16 @@
+------------------------------------
+ Found 10 occurence(s) of "AELD_IS_FUN"
+------------------------------------
+/tmp/aeld-data/avt8210.txt:1:AELD_IS_FUN
+/tmp/aeld-data/avt829.txt:1:AELD_IS_FUN
+/tmp/aeld-data/avt828.txt:1:AELD_IS_FUN
+/tmp/aeld-data/avt827.txt:1:AELD_IS_FUN
+/tmp/aeld-data/avt826.txt:1:AELD_IS_FUN
+/tmp/aeld-data/avt825.txt:1:AELD_IS_FUN
+/tmp/aeld-data/avt824.txt:1:AELD_IS_FUN
+/tmp/aeld-data/avt823.txt:1:AELD_IS_FUN
+/tmp/aeld-data/avt822.txt:1:AELD_IS_FUN
+/tmp/aeld-data/avt821.txt:1:AELD_IS_FUN
+------------------------------------
+The number of files are 10 and the number of matching lines are 10
+success

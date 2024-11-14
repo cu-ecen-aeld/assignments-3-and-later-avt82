@@ -62,14 +62,17 @@ OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
 # remove temporary directories
 rm -rf /tmp/aeld-data
 
+rm ${OUTPUT_LOG}
+echo "${OUTPUTSTRING}" 1>>"${OUTPUT_LOG}" 2>>"${OUTPUT_LOG}"
+
 set +e
 echo "${OUTPUTSTRING}" | grep "${MATCHSTR}"
 if [ $? -eq 0 ]; then
 	echo "success"
+	echo "success" 1>>"${OUTPUT_LOG}" 2>>"${OUTPUT_LOG}"
 	exit 0
 else
 	echo "failed: expected  ${MATCHSTR} in ${OUTPUTSTRING} but instead found"
+	echo "failed: expected  ${MATCHSTR} in ${OUTPUTSTRING} but instead found" 1>>"${OUTPUT_LOG}" 2>>"${OUTPUT_LOG}"
 	exit 1
 fi
-
-echo "${OUTPUTSTRING}" > ${OUTPUT_LOG}
