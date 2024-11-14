@@ -62,7 +62,9 @@ OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
 # remove temporary directories
 rm -rf /tmp/aeld-data
 
-rm ${OUTPUT_LOG}
+if [ -f "${OUTPUT_LOG}" ]; then
+    rm "${OUTPUT_LOG}"
+fi
 echo "${OUTPUTSTRING}" 1>>"${OUTPUT_LOG}" 2>>"${OUTPUT_LOG}"
 
 set +e
