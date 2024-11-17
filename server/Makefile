@@ -3,7 +3,7 @@ CFLAGS ?= -Wall
 INCLUDES ?= 
 OBJS ?= aesdsocket.c
 TARGET ?= aesdsocket
-LDFLAGS ?= 
+LDFLAGS ?= -Wall -Werror -Wextra
 
 .phony:		default
 default:	all
@@ -15,5 +15,5 @@ all:		$(APP)
 
 .phony:		clean
 clean:
-			-@rm *.o $(TARGET) 1>/dev/null 2>/dev/null
+			-@rm *.o $(TARGET) true 1>/dev/null 2>/dev/null || true
 			@echo "Clean."
