@@ -91,9 +91,7 @@ static inline int my_simple_recv(client_context_t *const cli) {
 static int my_recv(client_context_t *const cli) {
 	int received = 0;
 	do {
-	   printf("recv\n"); fflush(stdout);
 		const int szData = my_simple_recv(cli);
-      printf("recvd\n"); fflush(stdout);
 		if(szData <= 0) {
 		   received = szData;
 		   break;
@@ -223,7 +221,6 @@ int main(int argc, char *argv[])
 	list_t *head = NULL;
 
 	timer_t timer = my_create_timer(timestamp_handler, &data, 10);
-//	timestamp_log(&data);
 
    while(true) {
       client_context_t *const cli = my_accept(sockfd, daemonize);
