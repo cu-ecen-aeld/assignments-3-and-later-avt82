@@ -31,6 +31,7 @@ timer_t my_create_timer(void (*handler) (__sigval_t), datafile_context_t *const 
    sev.sigev_notify = SIGEV_THREAD;
    sev.sigev_value.sival_ptr = (void*)arg;
    sev.sigev_notify_function = handler;
+   sev.sigev_notify_attributes = NULL;
 
    timer_create(CLOCK_MONOTONIC, &sev, &timer);
 
