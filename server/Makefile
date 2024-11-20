@@ -1,10 +1,10 @@
-CC=$(CROSS_COMPILE)gcc
-CFLAGS ?= -Wall -Wextra -Werror
+CC			?= $(CROSS_COMPILE)gcc
+CFLAGS 		?= -Wall -Wextra -Werror
 #CFLAGS += -g3 -ggdb
-INCLUDES ?= 
-OBJS ?= aesdsocket.c
-TARGET ?= aesdsocket
-LDFLAGS ?= 
+INCLUDES 	?= 
+OBJS 		?= aesdsocket.c
+TARGET 		?= aesdsocket
+LDFLAGS 	?= 
 
 .phony:		default
 default:	all
