@@ -20,9 +20,6 @@
  *
  ***************************************************************************/
 
-#define ML(__c)      { printf("M+%c", __c); fflush(stdout); }
-#define MU(__c)      { printf("M-%c", __c); fflush(stdout); }
-
 typedef struct {
    char           *filename;
    int             fd;

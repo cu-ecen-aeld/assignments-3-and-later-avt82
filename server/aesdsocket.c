@@ -141,8 +141,8 @@ static int my_create_thread(list_t **ppHead, client_context_t *const cli) {
       last = last->next;
    }
 
-   if(pthread_create(&last->thread, NULL, &thread_network_client, last) != 0) return -1; // cannot create a thread
    last->cli = cli;
+   if(pthread_create(&last->thread, NULL, &thread_network_client, last) != 0) return -1; // cannot create a thread
    return 0;   // success
 }
 
