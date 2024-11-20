@@ -11,113 +11,95 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <syslog.h>
-
-static char print_buff[256];
-
+#include <pthread.h>
+#include <time.h>
 #include "my_utils.h"
 #include "my_sockets.h"
+#include "my_list.h"
+#include "my_datafile.h"
 #include "my_signals.h"
+#include "my_timer.h"
 
-#define DEFAULT_BUFFER_SIZE			4096
-#define MAX_TEMPBUFF_SIZE			16384
-#define TEMPFILE_COPY_SIZE			4096
+static const char *pMessages[] = { "failed", "interrupted", "terminated", "interrupted and terminated"};
 
-static char const *const cDataFile = "/var/tmp/aesdsockedata";
-
-typedef struct {
-	char *filename;
-	int fd;
-	off_t pos;
-	char *data;
-} datafile_context_t;
-
-static void datafile_confirm(datafile_context_t *const ctx) {
-	lseek(ctx->fd, 0, SEEK_END);
-	ctx->pos = lseek(ctx->fd, 0, SEEK_CUR);
-}
-
-static int datafile_init(datafile_context_t *const ctx, char const *const filename) {
-	// stores the filename
-	ctx->filename = (char*)filename;
-	ctx->fd = open(ctx->filename, O_RDWR | O_CREAT | O_APPEND, 0666);
-	if(ctx->fd <= 0) return -1;
-	datafile_confirm(ctx);
-	ctx->data = malloc(DEFAULT_BUFFER_SIZE);
-	return (ctx->pos >= 0) && (ctx->data != NULL);
-}
-
-//static void datafile_trim(datafile_context_t *const ctx) {
-//	ftruncate(ctx->fd, ctx->pos);
-//	datafile_confirm(ctx);
-//}
-
-static void datafile_close(datafile_context_t *const ctx) {
-	if(ctx->fd > 0) close(ctx->fd);
-	if(ctx->data) free(ctx->data);
-}
-
-static void datafile_kill(datafile_context_t *const ctx) {
-	datafile_close(ctx);
-	remove(ctx->filename);
-}
-
-static int my_recv_write(int fd, char *data, int size) {
-	int written = 0;
-	while(written < size) {
-		int res = write(fd, data + written, size);
-		if(res < 0) {
-			const int en = errno;
-			if(en == EINTR) return -1;
-			if((en == EAGAIN) || (errno == EWOULDBLOCK)) continue;
-			return 0;
-		}
-		written += res;
-	}
-	return written;
-}
-
-static int my_send(int clientfd, datafile_context_t *const ctx) {
+static int my_send(client_context_t *const cli) {
 	int sent = 0;
 	// we'll start from the beginning of the file
-	lseek(ctx->fd, 0, SEEK_SET);
+   if(pthread_mutex_lock(&cli->dfctx->lock) != 0) return -1;
+   datafile_begin(cli->dfctx);
 	do {
-		const int szData = read(ctx->fd, ctx->data, DEFAULT_BUFFER_SIZE);
+		const int szData = read(cli->dfctx->fd, cli->data, DEFAULT_BUFFER_SIZE);
 		if(szData < 0) {
 			const int en = errno;
 			// if terminated by signal
-			if(en == EINTR) return -1;
-			return 0;
+         sent = 0;
+			if(en == EINTR) sent = -1;
+			break;
 		}
-		if(szData == 0) return sent;
+		if(szData == 0) {
+		   sent = 0;
+		   break;
+		}
 		int cnt = 0;
 		while(cnt < szData) {
-			const int szSent = send(clientfd, ctx->data + cnt, szData, 0);
+			const int szSent = send(cli->fd, cli->data + cnt, szData, 0);
 			if(szSent < 0) {
 				const int en = errno;
 				// if terminated by signal
-				if(en == EINTR) return -1;
-				if((en == EAGAIN) || (errno == EWOULDBLOCK)) continue;
-				return sent;
+            if((en == EAGAIN) || (errno == EWOULDBLOCK)) continue;
+            sent = 0;
+				if(en == EINTR) sent = -1;
+				break;
 			}
 			cnt += szSent;
 			sent += szSent;
 		}
+		if(sent < 0) break;
 	} while(true);
+   datafile_end(cli->dfctx);
+   pthread_mutex_unlock(&cli->dfctx->lock);
+   return sent;
 }
 
-static int my_recv(int clientfd, datafile_context_t *const ctx) {
+static inline int my_simple_recv(client_context_t *const cli) {
+   cli->size = 0;
+   do {
+      const int szData = recv(cli->fd, cli->data, DEFAULT_BUFFER_SIZE, 0);
+
+      // socket failure
+      if(szData == 0) break;
+
+      // success
+      if(szData > 0) {
+         cli->size = szData;
+         break;
+      }
+
+      // failure - signal, or socket, or anything else
+      const int en = errno;
+      // if terminated by signal
+      if((en == EAGAIN) || (errno == EWOULDBLOCK)) continue;
+      cli->size = 0;
+      if(en == EINTR) cli->size = -1;
+      break;
+
+   } while(true);
+
+   return cli->size;
+}
+
+static int my_recv(client_context_t *const cli) {
 	int received = 0;
 	do {
-		const int szData = recv(clientfd, ctx->data, DEFAULT_BUFFER_SIZE, 0);
-		if(szData < 0) {
-			const int en = errno;
-			// if terminated by signal
-			if(en == EINTR) return -1;
-			if((en == EAGAIN) || (errno == EWOULDBLOCK)) continue;
-			return received;
+	   printf("recv\n"); fflush(stdout);
+		const int szData = my_simple_recv(cli);
+      printf("recvd\n"); fflush(stdout);
+		if(szData <= 0) {
+		   received = szData;
+		   break;
 		}
-		if(szData == 0) return received;
-		char *ptr = ctx->data;
+
+		char *ptr = cli->data;
 		received += szData;
 		int cnt = szData;
 		char *begin = ptr;
@@ -125,16 +107,45 @@ static int my_recv(int clientfd, datafile_context_t *const ctx) {
 		while(cnt--) {
 			size++;
 			if(*ptr++ == '\n') {
-				if(my_recv_write(ctx->fd, begin, size) < 0) return -1;
-				datafile_confirm(ctx);
-				if(my_send(clientfd, ctx) < 0) return -1;
+				if(datafile_write_safe(cli->dfctx, begin, size) < 0) return -1;
+				if(my_send(cli) < 0) return -1;
 				begin = ptr;
 				size = 0;
 			}
 		}
-		my_recv_write(ctx->fd, begin, size);
-		datafile_confirm(ctx);
+		if(datafile_write_safe(cli->dfctx, begin, size) < 0) return -1;
 	} while(true);
+	return received;
+}
+
+
+static void *thread_network_client(void *arg) {
+   list_t *const list = (list_t *)arg;
+   my_recv(list->cli);
+   // close the client socket
+   close(list->cli->fd);
+   // free the client memory
+   free(list->cli->data);
+   free(list->cli);
+   // fingers crossed - we'll not get into a troubles with searching over the list,
+   // so mark ourselves as destroyed thread
+   list->cli = NULL;
+   return list;
+}
+
+static int my_create_thread(list_t **ppHead, client_context_t *const cli) {
+   if(*ppHead == NULL) *ppHead = list_malloc();
+   if(*ppHead == NULL) return -1; // not enough memory
+   list_t *last = list_findAvailableOrLast(*ppHead);
+   if(last->cli != NULL) {
+      last->next = list_malloc();
+      if(last->next == NULL) return -1; // not enough memory
+      last = last->next;
+   }
+
+   if(pthread_create(&last->thread, NULL, &thread_network_client, last) != 0) return -1; // cannot create a thread
+   last->cli = cli;
+   return 0;   // success
 }
 
 int main(int argc, char *argv[])
@@ -145,105 +156,117 @@ int main(int argc, char *argv[])
 		if(strcmp(argv[i], "-d") == 0) daemonize = true;
 	}
 
-    openlog(NULL, LOG_PERROR, LOG_USER);
+   openlog(NULL, LOG_PERROR, LOG_USER);
 
-    const int sockfd = my_socket();
-    if(sockfd < 0) {
-    	const int en = errno;
-    	syslog(LOG_ERR, "Cannot create socket (errno %d), exiting", en);
-    	printf("Cannot create socket (errno %d), exiting" EOLN, en);
-    	return 1;
-    }
+   const int sockfd = my_socket();
+   if(sockfd < 0) {
+      const int en = errno;
+      syslog(LOG_ERR, "Cannot create socket (errno %d), exiting", en);
+      printf("Cannot create socket (errno %d), exiting" EOLN, en);
+      return 1;
+   }
 
-    if(my_setsockopt(sockfd) != 0) {
-    	const int en = errno;
-    	syslog(LOG_ERR, "Cannot set socket options (errno %d), exiting", en);
-    	printf("Cannot set socket options (errno %d), exiting" EOLN, en);
-    	close(sockfd);
-    	return 1;
-    }
+   if(my_setsockopt(sockfd) != 0) {
+      const int en = errno;
+      syslog(LOG_ERR, "Cannot set socket options (errno %d), exiting", en);
+      printf("Cannot set socket options (errno %d), exiting" EOLN, en);
+      close(sockfd);
+      return 1;
+   }
 
-    if(my_bind(sockfd) != 0) {
-    	const int en = errno;
-		syslog(LOG_ERR, "Cannot bind socket (errno %d), exiting", en);
-    	printf("Cannot bind socket (errno %d), exiting" EOLN, en);
-    	close(sockfd);
-    	return 1;
-    }
+   if(my_bind(sockfd) != 0) {
+      const int en = errno;
+      syslog(LOG_ERR, "Cannot bind socket (errno %d), exiting", en);
+      printf("Cannot bind socket (errno %d), exiting" EOLN, en);
+      close(sockfd);
+      return 1;
+   }
 
 	init_signals();
 
-    if(daemonize) {
-    	const int res = fork();
-    	if(res < 0) {
-        	const int en = errno;
-    		syslog(LOG_ERR, "Cannot fork (errno %d), exiting", en);
-        	printf("Cannot fork (errno %d), exiting" EOLN, en);
-        	close(sockfd);
-        	return 1;
-    	}
-    	// parent should exit now
-    	if(res > 0) {
-    		syslog(LOG_INFO, "Successfully daemonized");
-    		printf("Successfully daemonized" EOLN);
-        	close(sockfd);
-    		return 0;
-    	}
-    }
+   if(daemonize) {
+      const int res = fork();
+      if(res < 0) {
+         const int en = errno;
+         syslog(LOG_ERR, "Cannot fork (errno %d), exiting", en);
+         printf("Cannot fork (errno %d), exiting" EOLN, en);
+         close(sockfd);
+         return 1;
+   	}
+      // parent should exit now
+      if(res > 0) {
+         syslog(LOG_INFO, "Successfully daemonized, pid=%d", res);
+         printf("Successfully daemonized, pid=%d" EOLN, res);
+         close(sockfd);
+         return 0;
+      }
+   }
 
 	if(my_listen(sockfd) != 0) {
 		const int en = errno;
-	    syslog(LOG_ERR, "Cannot listen socket (errno %d), exiting", en);
+	   syslog(LOG_ERR, "Cannot listen socket (errno %d), exiting", en);
 		printf("Cannot listen socket (errno %d), exiting" EOLN, en);
 		close(sockfd);
 		return 1;
 	}
 
 	datafile_context_t data;
-	if(!datafile_init(&data, cDataFile)) {
+	if(datafile_init(&data, cDataFile) < 0) {
 		const int en = errno;
-	    syslog(LOG_ERR, "Cannot instantiate data file (errno %d), exiting", en);
+	   syslog(LOG_ERR, "Cannot instantiate data file (errno %d), exiting", en);
 		printf("Cannot instantiate data file (errno %d), exiting" EOLN, en);
 		close(sockfd);
 		return 1;
 	}
 
-    while(true) {
-		const int clientfd = my_accept(sockfd, daemonize);
-		if(clientfd < 0) {
-			const int en = errno;
-			// if terminated by signal
-			if(en == EINTR) break;
-			// should never get here, I suppose
-			syslog(LOG_ERR, "Cannot accept connection (errno %d), exiting", en);
-			printf("Cannot accept connection (errno %d), exiting" EOLN, en);
-			close(sockfd);
-			datafile_close(&data);
-			return 1;
-		}
+	// create a head of our list
+	list_t *head = NULL;
 
-		if(my_recv(clientfd, &data) < 0) {
-			close(clientfd);
-			break;
-		}
-		// delete all that has no EOLn after
-//		datafile_trim(&data);
+	timer_t timer = my_create_timer(timestamp_handler, &data, 10);
+//	timestamp_log(&data);
 
-//		if(my_send(clientfd, &data) < 0) {
-//			close(clientfd);
-//			break;
-//		}
+   while(true) {
+      client_context_t *const cli = my_accept(sockfd, daemonize);
+      if(cli == NULL) break;
 
-    }
-    close(sockfd);
-    datafile_kill(&data);
+      cli->dfctx = &data;
+      if(my_create_thread(&head, cli) != 0) {
+         const int en = errno;
+         syslog(LOG_ERR, "Cannot instantiate connection thread (errno %d), exiting", en);
+         if(!daemonize) printf("Cannot instantiate connection thread (errno %d), exiting" EOLN, en);
+         close(cli->fd);
+         break;
+      }
+   }
+   timer_delete(timer);
 
-    static const char *pMessages[] = { "WTF?", "interrupted", "terminated", "interrupted and terminated"};
+   sprintf(print_buff, "Application execution was %s, cleaning up.",
+      pMessages[(int)bSignalInterrupt + ((int)bSignalTerminate * 2)]);
+   syslog(LOG_INFO, "%s", print_buff);
+   if(!daemonize) printf("%s" EOLN, print_buff);
+   fflush(stdout);
 
-    sprintf(print_buff, "Application execution was %s, exiting",
-    		pMessages[(int)bSignalInterrupt + ((int)bSignalTerminate * 2)]);
-	syslog(LOG_INFO, "%s", print_buff);
-    printf("%s" EOLN, print_buff);
+   close(sockfd);
+   list_t *list = head;
+   int idx = 0;
+   while(list != NULL) {
+      if(list->cli != NULL) {
+         // the client thread should know we're done here
+         shutdown(list->cli->fd, SHUT_RDWR);
+         void *ret = NULL;
+         const int res = pthread_join(list->thread, &ret);
+         sprintf(print_buff, "Joined thread #%d exits(%d) with useless arg=0x%08lx.", ++idx, res, (long int)ret);
+         syslog(LOG_DEBUG, "%s", print_buff);
+         if(!daemonize) printf("%s" EOLN, print_buff);
+      }
+      list_t *prev = list;
+      list = list->next;
+      free(prev);
+   }
+   datafile_kill(&data);
 
-    return 0;
+   syslog(LOG_INFO, "stopped.");
+   if(!daemonize) printf("stopped.\n" EOLN);
+
+   return 0;
 }

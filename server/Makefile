@@ -3,7 +3,8 @@ CFLAGS ?= -Wall
 INCLUDES ?= 
 OBJS ?= aesdsocket.c
 TARGET ?= aesdsocket
-LDFLAGS ?= -Wall -Werror -Wextra
+LDFLAGS ?= -Wall -Wextra
+#-Werror -
 
 .phony:		default
 default:	all

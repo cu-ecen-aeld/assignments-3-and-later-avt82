@@ -9,3 +9,6 @@ test.sh.log
 aesdsocket
 server/aesdsocket
 server/valgrind-out.txt
+.project
+.cproject
+.settings/

@@ -16,7 +16,28 @@
  *
  * Do not modify the code below!
  *
+ * WARNING! This file must be included from one source file only!
+ *
  ***************************************************************************/
+
+#define ML(__c)      { printf("M+%c", __c); fflush(stdout); }
+#define MU(__c)      { printf("M-%c", __c); fflush(stdout); }
+
+typedef struct {
+   char           *filename;
+   int             fd;
+   pthread_mutex_t lock;
+} datafile_context_t;
+
+typedef struct {
+   int                 fd;
+   uint32_t            addr;
+   char               *data;
+   int                 size;
+   datafile_context_t *dfctx;
+} client_context_t;
+
+static char print_buff[256];
 
 #if !defined(dbg_print)
 #define dbg_print(...)
